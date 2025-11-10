@@ -19,14 +19,13 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{ensure, Result};
 use clap::{Args, Parser};
 use colored::ColoredString;
 use magika_lib::{
     self as magika, ContentType, Features, FeaturesOrRuled, FileType, InferredType,
     OverwriteReason, Session, TypeInfo,
 };
-use ort::session::builder::GraphOptimizationLevel;
 use serde::Serialize;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -166,8 +165,10 @@ async fn main() -> Result<()> {
         if flags.experimental.intra_threads.is_some() {
             return 1;
         }
-        // Otherwise, we use the minimum number of intra threads (which is 2).
-        flags.experimental.intra_threads = Some(2);
+        // Otherwise, we use the minimum number of intra threads.
+        // For ORT the minimum intra_threads is 2, for RTen it is one.
+        flags.experimental.intra_threads = Some(1);
+
         // And as many tasks as physical CPUs with a minimum of 2.
         std::cmp::max(2, num_cpus::get_physical())
     });
@@ -328,7 +329,6 @@ async fn process_path(
 }
 
 fn build_session(flags: &Flags) -> Result<Session> {
-    ort::init().with_telemetry(false).commit()?;
     let mut magika = Session::builder();
     if let Some(inter_threads) = flags.experimental.inter_threads {
         magika = magika.with_inter_threads(inter_threads);
@@ -338,16 +338,6 @@ fn build_session(flags: &Flags) -> Result<Session> {
     let intra_threads_default = cfg!(target_os = "macos").then_some(4);
     if let Some(intra_threads) = flags.experimental.intra_threads.or(intra_threads_default) {
         magika = magika.with_intra_threads(intra_threads);
-    }
-    if let Some(opt_level) = flags.experimental.optimization_level {
-        let opt_level = match opt_level {
-            0 => GraphOptimizationLevel::Disable,
-            1 => GraphOptimizationLevel::Level1,
-            2 => GraphOptimizationLevel::Level2,
-            3 => GraphOptimizationLevel::Level3,
-            _ => bail!("--optimization-level must be 0, 1, 2, or 3"),
-        };
-        magika = magika.with_optimization_level(opt_level);
     }
     if let Some(parallel_execution) = flags.experimental.parallel_execution {
         magika = magika.with_parallel_execution(parallel_execution);

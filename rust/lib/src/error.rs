@@ -15,6 +15,21 @@
 /// Result type of Magika functions.
 pub type Result<T> = core::result::Result<T, Error>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum RtenError {
+    // Model inference failed.
+    #[error("{0}")]
+    RunError(#[from] rten::RunError),
+
+    // Loading a model failed.
+    #[error("{0}")]
+    LoadError(#[from] rten::LoadError),
+
+    // Converting a value failed.
+    #[error("{0}")]
+    ValueError(#[from] rten::TryFromValueError),
+}
+
 /// Errors returned by Magika functions.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -22,11 +37,29 @@ pub enum Error {
     #[error("{0}")]
     IOError(#[from] std::io::Error),
 
-    /// Errors reported by the ONNX Runtime.
-    #[error("{0}")]
-    OrtError(#[from] ort::Error),
-
     /// Shape errors reported by the ndarray library.
     #[error("{0}")]
     ShapeError(#[from] ndarray::ShapeError),
+
+    /// Errors reported by the rten library.
+    #[error("{0}")]
+    RtenError(#[from] RtenError),
+}
+
+impl From<rten::RunError> for Error {
+    fn from(val: rten::RunError) -> Self {
+        Self::RtenError(val.into())
+    }
+}
+
+impl From<rten::LoadError> for Error {
+    fn from(val: rten::LoadError) -> Self {
+        Self::RtenError(val.into())
+    }
+}
+
+impl From<rten::TryFromValueError> for Error {
+    fn from(val: rten::TryFromValueError) -> Self {
+        Self::RtenError(val.into())
+    }
 }

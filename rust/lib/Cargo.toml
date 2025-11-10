@@ -18,18 +18,13 @@ features = ["_doc"]
 serde = ["dep:serde"]
 # Internal features.
 _doc = ["serde"]
-_test = ["ort/download-binaries"]
 
 [dependencies]
 ndarray = "0.16.1"
 serde = { version = "1.0.204", features = ["derive"], optional = true }
 thiserror = "1.0.63"
-tokio = { version = "1.43.1", features = ["fs", "io-util"] }
-
-[dependencies.ort]
-version = "=2.0.0-rc.10"
-default-features = false
-features = ["ndarray", "std"]
+tokio = { version = "1.43.1", features = ["fs", "io-util", "rt", "rt-multi-thread"] }
+rten = { version = "0.24.0", default-features = false, features = ["onnx_format"] }
 
 [dev-dependencies]
 data-encoding = "2.6.0"

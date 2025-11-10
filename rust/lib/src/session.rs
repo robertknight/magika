@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use ndarray::Array2;
+use ndarray::ArrayD;
 
 use crate::future::{exec, AsyncEnv, Env, SyncEnv};
 use crate::input::AsyncInputApi;
@@ -23,7 +24,8 @@ use crate::{AsyncInput, Builder, Features, FeaturesOrRuled, FileType, Result, Sy
 /// A Magika session to identify files.
 #[derive(Debug)]
 pub struct Session {
-    pub(crate) session: ort::session::Session,
+    pub(crate) model: rten::Model,
+    pub(crate) thread_pool: Arc<rten::ThreadPool>,
 }
 
 impl Session {
@@ -111,13 +113,28 @@ impl Session {
             return Ok(Vec::new());
         }
         let features_size = crate::model::CONFIG.features_size();
-        let input = Array2::from_shape_vec(
+
+        let bytes_id = self.model.node_id("bytes")?;
+        let output_id = self.model.node_id("target_label")?;
+        let input = rten::Value::from_shape(
             [features.len(), features_size],
             features.iter().flat_map(|x| &x.0).cloned().collect(),
-        )?;
-        let mut output = E::ort_session_run(&mut self.session, input).await?;
-        let output = output.remove("target_label").unwrap();
-        let output = output.try_extract_array()?;
-        Ok(FileType::convert(output))
+        )
+        .expect("features shape should match data");
+
+        // Use this session's thread pool instead of RTen's default global pool.
+        let thread_pool = self.thread_pool.clone();
+        let opts = rten::RunOptions::default().with_thread_pool(Some(thread_pool));
+
+        // Upstream Magika uses the ort crate's built-in async support. RTen
+        // doesn't have built-in async support so use `block_in_place` here
+        // to allow other tasks to run concurrently.
+        let [output] = tokio::task::block_in_place(|| {
+            self.model.run_n(vec![(bytes_id, input.into())], [output_id], Some(opts))
+        })?;
+
+        let (out_shape, out_data) = output.into_shape_vec::<f32, 2>()?;
+        let output = ArrayD::from_shape_vec(out_shape.as_slice(), out_data)?;
+        Ok(FileType::convert(output.view()))
     }
 }

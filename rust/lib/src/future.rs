@@ -16,12 +16,7 @@ use std::fs::Metadata;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::OnceLock;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
-use ndarray::Array2;
-use ort::session::{NoSelectedOutputs, RunOptions};
-use ort::value::Tensor;
 
 use crate::input::AsyncInputApi;
 use crate::Result;
@@ -40,9 +35,6 @@ pub(crate) trait Env {
     type File: AsyncInputApi;
     async fn symlink_metadata(path: &Path) -> Result<Metadata>;
     async fn open(path: &Path) -> Result<Self::File>;
-    async fn ort_session_run(
-        session: &mut ort::session::Session, input: Array2<i32>,
-    ) -> Result<ort::session::SessionOutputs<'_>>;
 }
 
 pub(crate) enum SyncEnv {}
@@ -56,12 +48,6 @@ impl Env for SyncEnv {
     async fn open(path: &Path) -> Result<Self::File> {
         Ok(std::fs::File::open(path)?)
     }
-
-    async fn ort_session_run(
-        session: &mut ort::session::Session, input: Array2<i32>,
-    ) -> Result<ort::session::SessionOutputs<'_>> {
-        Ok(session.run(ort::inputs!("bytes" => Tensor::from_array(input)?))?)
-    }
 }
 
 pub(crate) enum AsyncEnv {}
@@ -74,21 +60,6 @@ impl Env for AsyncEnv {
 
     async fn open(path: &Path) -> Result<Self::File> {
         Ok(tokio::fs::File::open(path).await?)
-    }
-
-    async fn ort_session_run(
-        session: &mut ort::session::Session, input: Array2<i32>,
-    ) -> Result<ort::session::SessionOutputs<'_>> {
-        static OPTIONS: OnceLock<RunOptions<NoSelectedOutputs>> = OnceLock::new();
-        // TODO(https://github.com/rust-lang/rust/issues/109737): Use get_or_try_init.
-        let options = match OPTIONS.get() {
-            Some(x) => x,
-            None => {
-                let _ = OPTIONS.set(RunOptions::new()?);
-                OPTIONS.get().unwrap()
-            }
-        };
-        Ok(session.run_async(ort::inputs!("bytes" => Tensor::from_array(input)?), options)?.await?)
     }
 }
 
